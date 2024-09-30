@@ -13,6 +13,7 @@ import io
 import bibtexparser
 import openpyxl
 import os
+import json
 from openpyxl.utils.dataframe import dataframe_to_rows
 from openpyxl.styles import Font
 from openpyxl.utils import column_index_from_string
@@ -138,53 +139,28 @@ def process_raw_data(filename, start_year, end_year):
     
     return df
 
-def process_custom_query(llm, query, start_year, end_year):
+def process_custom_query(llm, query, journal_papers, conference_papers):
+    combined_papers = journal_papers + conference_papers
+    papers_json = json.dumps(combined_papers)
+    
     messages = [
         (
             "system",
-            "You are an assistant designed to create Excel formulas for custom queries on research paper data. The data includes columns for year (A), citations (B), title (C), authors (D), and venue (E). Generate an Excel formula to extract the relevant data based on the user's query and specified year range. Provide only the Excel formula, nothing else."
+            "You are an assistant designed to analyze research papers based on a user's query. Given a list of papers and a query, suggest relevant papers or indicate if there's no suitable answer."
         ),
         (
             "human",
-            f"Create an Excel formula for the following query: '{query}' and year range {start_year}-{end_year}. The data is in columns A (year), B (citations), C (title), D (authors), E (venue). Return only the formula, no explanations or notes."
+            f"Here is a list of research papers: {papers_json}\n\nAnalyze these papers based on the following query: '{query}'. If there are relevant papers, suggest them. If not, indicate that there's no suitable answer. Provide your response in a clear, structured format."
         ),
     ]
     
     ai_msg = llm.invoke(messages)
     return ai_msg.content.strip()
 
-def apply_excel_formula(excel_file, sheet_name, formula):
-    wb = openpyxl.load_workbook(excel_file)
-    sheet = wb[sheet_name]
-    
-    # Find the last row with data
-    last_row = sheet.max_row
-    
-    # Apply the formula to the range
-    for row in range(2, last_row + 1):
-        cell = sheet.cell(row=row, column=6)  # Column F
-        cell.value = f"={formula.replace('2', str(row))}"
-    
-    # Save the workbook
-    wb.save(excel_file)
-    return last_row
-
-def extract_formula_results(sheet):
-    results = []
-    for row in sheet.iter_rows(min_row=2, values_only=True):
-        if row[5]:  # If the formula result in column F is True
-            results.append(row[:5])  # Append the first 5 columns (A-E)
-    
-    # Create a DataFrame with the extracted data
-    columns = ['Year', 'Citations', 'Title', 'Authors', 'Venue']
-    df = pd.DataFrame(results, columns=columns)
-    
-    return df
-
 def main():
-    st.set_page_config(page_title="Faculty Research Analysis", layout="wide")
+    st.set_page_config(page_title="Scholar AI - Faculty Publication Summary Generator", layout="wide")
     
-    st.title("Faculty Research Analysis")
+    st.title("Scholar AI - Faculty Publication Summary Generator")
     st.markdown("""
     This app analyzes research papers for selected faculty members.
     You can customize the year range and provide a custom query after data retrieval.
@@ -313,51 +289,25 @@ def main():
                         # Apply custom query if provided
                         if custom_query:
                             try:
-                                # Generate Excel formula
-                                excel_formula = process_custom_query(llm, custom_query, start_year, end_year)
-                                st.subheader("Generated Excel Formula")
-                                st.code(excel_formula, language="excel")
-
-                                # Apply the formula to both Journal and Conference sheets
-                                journal_last_row = apply_excel_formula(excel_file, "Journal Papers", excel_formula)
-                                conference_last_row = apply_excel_formula(excel_file, "Conference Papers", excel_formula)
-
-                                # Reload the workbook to get the updated values
-                                wb = openpyxl.load_workbook(excel_file, data_only=True)
+                                with st.spinner("Processing custom query..."):
+                                    query_results = process_custom_query(llm, custom_query, journal_papers, conference_papers)
                                 
-                                # Extract the results
-                                journal_results = extract_formula_results(wb["Journal Papers"])
-                                conference_results = extract_formula_results(wb["Conference Papers"])
-
-                                st.success(f"Custom query applied and data extracted for {faculty_name}.")
+                                st.success(f"Custom query processed for {faculty_name}.")
                                 
                                 # Display results
-                                st.subheader("Journal Papers Results")
-                                st.write(journal_results)
+                                st.subheader("Custom Query Results")
+                                st.write(query_results)
                                 
-                                st.subheader("Conference Papers Results")
-                                st.write(conference_results)
-
-                                # Provide download buttons for the extracted data
-                                journal_csv = journal_results.to_csv(index=False).encode('utf-8')
-                                conference_csv = conference_results.to_csv(index=False).encode('utf-8')
-
+                                # Provide download button for the query results
                                 st.download_button(
-                                    label=f"Download Journal Results CSV for {faculty_name}",
-                                    data=journal_csv,
-                                    file_name=f"{faculty_name}_journal_results.csv",
-                                    mime="text/csv"
-                                )
-
-                                st.download_button(
-                                    label=f"Download Conference Results CSV for {faculty_name}",
-                                    data=conference_csv,
-                                    file_name=f"{faculty_name}_conference_results.csv",
-                                    mime="text/csv"
+                                    label=f"Download Query Results for {faculty_name}",
+                                    data=query_results,
+                                    file_name=f"{faculty_name}_query_results.txt",
+                                    mime="text/plain"
                                 )
                             
                             except Exception as e:
-                                st.error(f"An error occurred while applying the custom query: {str(e)}")
+                                st.error(f"An error occurred while processing the custom query: {str(e)}")
                         
                         # Provide download buttons for Excel and Word files
                         st.download_button(
