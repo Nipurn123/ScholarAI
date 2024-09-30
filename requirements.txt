@@ -1,0 +1,11 @@
+streamlit
+datetime
+pandas
+tenacity
+langchain-groq
+bibtexparser
+openpyxl
+python-docx
+bs4
+selenium 
+webdriver_manager 
